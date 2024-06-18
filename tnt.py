@@ -23,7 +23,7 @@ def generate_pdf():
         temp_pdf_file.close()
 
         # Send the PDF file back to the client
-        return send_file(temp_pdf_file.name, as_attachment=True, attachment_filename='generated.pdf')
+        return send_file(temp_pdf_file.name, as_attachment=True)
 
     except Exception as e:
         return f"Error generating PDF: {str(e)}", 500
