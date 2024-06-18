@@ -5,7 +5,7 @@ import os
 
 app = Flask(__name__)
 
-@app.route('/generate_pdf', methods=['POST'])
+@app.route('/', methods=['POST'])
 def generate_pdf():
     request_data = request.json  # Assuming JSON input
     base64_pdf_string = request_data.get('base64_pdf', None)
