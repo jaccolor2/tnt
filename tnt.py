@@ -1,12 +1,37 @@
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, jsonify
+import requests
+import shutil
 import base64
 import tempfile
 import os
-import requests
-from fpdf import FPDF
-from PIL import Image
 
 app = Flask(__name__)
+
+def convert_base64_to_pdf(base64_zpl, output_file='label.pdf', label_size='5x6', density='8dpmm'):
+    try:
+        # Decode base64 ZPL to raw ZPL string
+        zpl = base64.b64decode(base64_zpl).decode('utf-8')
+
+        # Construct URL with label size and density parameters
+        url = f'http://api.labelary.com/v1/printers/{density}/labels/{label_size}/0/'
+        
+        # Set headers to accept PDF
+        headers = {'Accept': 'application/pdf'}  # Change to 'image/png' for PNG images
+
+        # Make POST request to Labelary API
+        response = requests.post(url, headers=headers, data=zpl, stream=True)
+
+        # Check if request was successful
+        if response.status_code == 200:
+            # Save the PDF response to a file
+            with open(output_file, 'wb') as out_file:
+                response.raw.decode_content = True
+                shutil.copyfileobj(response.raw, out_file)
+            return True, None  # Success
+        else:
+            return False, f"Error: {response.status_code} - {response.text}"  # Failure
+    except Exception as e:
+        return False, f"Error: {str(e)}"
 
 @app.route('/', methods=['POST'])
 def generate_pdf():
@@ -14,37 +39,24 @@ def generate_pdf():
     base64_zpl_string = request_data.get('base64_zpl', None)
 
     if not base64_zpl_string:
-        return "Error: Base64 ZPL string not provided", 400
+        return jsonify({"error": "Base64 ZPL string not provided"}), 400
 
     try:
-        # Decode the Base64 string
-        zpl_data = base64.b64decode(base64_zpl_string).decode('utf-8')
-
-        # Convert ZPL to PNG using Labelary
-        files = {'file': ('label.zpl', zpl_data)}
-        response = requests.post('http://api.labelary.com/v1/printers/8dpmm/labels/4x6/0/', files=files, headers={'Accept': 'application/pdf'})
-        
-        if response.status_code != 200:
-            return f"Error converting ZPL to image: {response.text}", 500
-
-        # Save the PNG to a temporary file
-        temp_image_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-        temp_image_file.write(response.content)
-        temp_image_file.close()
-
-        # Convert the PNG to PDF using Pillow and FPDF
-        image = Image.open(temp_image_file.name)
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.image(temp_image_file.name, x=10, y=8, w=pdf.w - 20)
+        # Create a temporary file to save the PDF
         temp_pdf_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-        pdf.output(temp_pdf_file.name)
+        temp_pdf_file.close()
         
-        # Send the PDF file back to the client
-        return send_file(temp_pdf_file.name, as_attachment=True)
+        # Convert the base64 ZPL to PDF
+        success, error_message = convert_base64_to_pdf(base64_zpl_string, output_file=temp_pdf_file.name)
+
+        if success:
+            # Send the PDF file back to the client
+            return send_file(temp_pdf_file.name, as_attachment=True)
+        else:
+            return jsonify({"error": error_message}), 500
 
     except Exception as e:
-        return f"Error generating PDF: {str(e)}", 500
+        return jsonify({"error": f"Error generating PDF: {str(e)}"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
